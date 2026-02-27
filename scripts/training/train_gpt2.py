@@ -15,12 +15,14 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
 from tiny_lm.data.bin import BinDataConfig, BinTokenDataModule
@@ -114,6 +116,9 @@ def copy_run_configs(run_dir: Path, args: argparse.Namespace) -> None:
 def main() -> None:
     args = parse_args()
 
+    # Enable TF32 for faster float32 matmuls on Ampere+ GPUs (e.g. RTX 5070)
+    torch.set_float32_matmul_precision("high")
+
     model_config = GPT2Config.from_yaml(args.model_config)
     training_config = TrainingConfig.from_yaml(args.training_config)
     data_config = BinDataConfig.from_yaml(args.data_config)
@@ -125,6 +130,10 @@ def main() -> None:
         )
 
     model = build_model(model_config)
+    if sys.platform != "win32":
+        model = torch.compile(model)  # Triton JIT compilation for kernel fusion
+    else:
+        print("⚠ Skipping torch.compile() — Triton is not available on Windows.")
     module = CausalLMModule(model=model, config=training_config)
 
     data_module = BinTokenDataModule(
@@ -191,8 +200,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    import sys
-
     if len(sys.argv) == 1:
         sys.argv.extend(
             [

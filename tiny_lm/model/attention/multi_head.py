@@ -22,6 +22,7 @@ https://arxiv.org/abs/2305.13245
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from tiny_lm.model.position import apply_rotary_emb
 
 
@@ -31,6 +32,10 @@ class MultiHeadAttention(nn.Module):
     Splits the input into multiple heads, computes scaled dot-product attention
     for each head independently, then concatenates and projects the results.
 
+    Uses ``F.scaled_dot_product_attention`` (PyTorch ≥ 2.0) which automatically
+    dispatches to the fastest available backend (FlashAttention-2,
+    Memory-Efficient Attention, or the math fallback).
+
     Args:
         d_model: Dimension of model embeddings
         n_heads: Number of attention heads
@@ -38,12 +43,10 @@ class MultiHeadAttention(nn.Module):
             - If None, defaults to n_heads (standard MHA)
             - If 1, uses MQA
             - If between 1 and n_heads, uses GQA
-        context_length: Maximum sequence length (for causal mask)
+        context_length: Maximum sequence length
         dropout: Dropout probability for attention weights
         qkv_bias: Whether to use bias in Q, K, V projections
     """
-
-    causal_mask: torch.Tensor
 
     def __init__(
         self,
@@ -70,6 +73,7 @@ class MultiHeadAttention(nn.Module):
         # GQA: rep = how many times to repeat the KV heads to match Q heads?
         self.n_rep = n_heads // n_kv_heads
         self.head_dim = d_model // n_heads
+        self.attn_dropout = dropout
 
         # Linear projections:
         # Q always uses n_heads, while K/V use n_kv_heads for GQA/MQA.
@@ -79,16 +83,6 @@ class MultiHeadAttention(nn.Module):
 
         # Output projection
         self.out_proj = nn.Linear(d_model, d_model)
-
-        # Dropout
-        self.dropout = nn.Dropout(dropout)
-
-        # Causal mask (upper triangular matrix of ones)
-        # This prevents attending to future tokens
-        causal_mask = torch.triu(
-            torch.ones(context_length, context_length), diagonal=1
-        ).bool()
-        self.register_buffer("causal_mask", causal_mask)
 
     def forward(
         self, x: torch.Tensor, freqs_cis: torch.Tensor | None = None
@@ -129,27 +123,18 @@ class MultiHeadAttention(nn.Module):
         K = K.transpose(1, 2)
         V = V.transpose(1, 2)
 
-        # Compute attention scores: Q @ K^T
-        # (batch_size, n_heads, seq_len, head_dim) @ (batch_size, n_heads, head_dim, seq_len)
-        # -> (batch_size, n_heads, seq_len, seq_len)
-        attn_scores = Q @ K.transpose(-2, -1)
-
-        # Scale by sqrt(head_dim) for stability
-        attn_scores = attn_scores / (self.head_dim**0.5)
-
-        # Apply causal mask (prevent attending to future tokens)
-        # Truncate mask to current sequence length
-        mask = self.causal_mask[:seq_len, :seq_len]
-        attn_scores = attn_scores.masked_fill(mask, float("-inf"))
-
-        # Apply softmax to get attention weights
-        attn_weights = torch.softmax(attn_scores, dim=-1)
-        attn_weights = self.dropout(attn_weights)
-
-        # Apply attention weights to values
-        # (batch_size, n_heads, seq_len, seq_len) @ (batch_size, n_heads, seq_len, head_dim)
-        # -> (batch_size, n_heads, seq_len, head_dim)
-        context = attn_weights @ V
+        # Scaled dot-product attention with automatic backend selection
+        # (FlashAttention-2, Memory-Efficient, or Math fallback).
+        # is_causal=True applies the causal mask inside the fused kernel,
+        # reducing memory usage from O(n²) to O(n).
+        context = F.scaled_dot_product_attention(
+            Q,
+            K,
+            V,
+            attn_mask=None,
+            dropout_p=self.attn_dropout if self.training else 0.0,
+            is_causal=True,
+        )
 
         # Transpose back: (batch_size, n_heads, seq_len, head_dim)
         # -> (batch_size, seq_len, n_heads, head_dim)

@@ -1,0 +1,23 @@
+{
+  "architectures": [
+    "GPT2LMHeadModel"
+  ],
+  "model_type": "gpt2",
+  "vocab_size": 8192,
+  "n_embd": 384,
+  "n_layer": 2,
+  "n_head": 4,
+  "n_inner": 1536,
+  "n_positions": 256,
+  "n_ctx": 256,
+  "activation_function": "gelu",
+  "layer_norm_epsilon": 1e-05,
+  "resid_pdrop": 0.0,
+  "embd_pdrop": 0.0,
+  "attn_pdrop": 0.0,
+  "bos_token_id": 8190,
+  "eos_token_id": 8189,
+  "tie_word_embeddings": true,
+  "torch_dtype": "float32",
+  "transformers_version": "4.45.0"
+}

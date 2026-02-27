@@ -131,6 +131,10 @@ def generate(
 
 def main() -> None:
     args = parse_args()
+
+    # Enable TF32 for faster float32 matmuls on Ampere+ GPUs (e.g. RTX 5070)
+    torch.set_float32_matmul_precision("high")
+
     checkpoint_path = Path(args.checkpoint)
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -151,6 +155,7 @@ def main() -> None:
     state_dict = load_checkpoint_state(str(checkpoint_path), args.device)
     model.load_state_dict(state_dict, strict=True)
     model.to(args.device)
+    model = torch.compile(model)  # Triton JIT compilation for kernel fusion
     model.eval()
 
     tok_config = TokenizerConfig.from_yaml(args.tokenizer_config)

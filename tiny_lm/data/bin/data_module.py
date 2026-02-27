@@ -88,6 +88,8 @@ class BinTokenDataModule(pl.LightningDataModule):
             pin_memory=self.pin_memory,
             drop_last=self.drop_last,
             shuffle=False,
+            persistent_workers=self.num_workers > 0,
+            prefetch_factor=4 if self.num_workers > 0 else None,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -100,4 +102,6 @@ class BinTokenDataModule(pl.LightningDataModule):
             pin_memory=self.pin_memory,
             drop_last=False,
             shuffle=False,
+            persistent_workers=self.num_workers > 0,
+            prefetch_factor=4 if self.num_workers > 0 else None,
         )

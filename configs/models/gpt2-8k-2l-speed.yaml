@@ -1,0 +1,12 @@
+# GPT-2 speed run: ~5M params for quick 1-hour training
+# Smaller d_model + shorter context = much faster per step
+vocab_size: 8192
+context_length: 256
+d_model: 384
+n_layers: 2
+n_heads: 4
+d_ff: 1536
+dropout: 0.1
+emb_dropout: 0.1
+attn_dropout: 0.1
+resid_dropout: 0.1
